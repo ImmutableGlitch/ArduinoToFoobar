@@ -65,23 +65,28 @@ namespace projArduinoToFoobar
             SerialPort port = (SerialPort)sender;
             string data = port.ReadLine();
             Debug.WriteLine(data);
+            string foo = "\"E:\\Data\\Programs\\Installers\\Fresh_Install\\Windows_Settings\\Program Files (x86)\\foobar2000\\foobar2000.exe\"";
 
             // Arduino sent PP with carriage return
-            if (data != String.Empty && data.Equals("PlayPause\r"))
+            switch (data)
             {
-                string foo = "\"E:\\Data\\Programs\\Installers\\Fresh_Install\\Windows_Settings\\Program Files (x86)\\foobar2000\\foobar2000.exe\"";
-                ExecuteCommand(foo + " /playpause");
+                case "PlayPause\r":
+                    ExecuteCommand(foo + " /playpause");
+                    break;
+
+                case "Next\r":
+                    ExecuteCommand(foo + " /next");
+                    break;
+
+                case "Previous\r":
+                    ExecuteCommand(foo + " /prev");
+                    break;
+
+                default:
+                    Debug.WriteLine("Unknown command sent");
+                    break;
             }
-            else if (data != String.Empty && data.Equals("Next\r"))
-            {
-                string foo = "\"E:\\Data\\Programs\\Installers\\Fresh_Install\\Windows_Settings\\Program Files (x86)\\foobar2000\\foobar2000.exe\"";
-                ExecuteCommand(foo + " /next");
-            }
-            else if (data != String.Empty && data.Equals("Previous\r"))
-            {
-                string foo = "\"E:\\Data\\Programs\\Installers\\Fresh_Install\\Windows_Settings\\Program Files (x86)\\foobar2000\\foobar2000.exe\"";
-                ExecuteCommand(foo + " /prev");
-            }
+
         }
 
         public static void ExecuteCommand(string command)

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Windows.Forms;
 using System.Diagnostics;
 using System.IO.Ports;
 using System.Runtime.InteropServices;
@@ -27,21 +28,34 @@ namespace projArduinoToFoobar
             
             Debug.WriteLine("Listening to messages");
 
-            try
+            bool flag = false;
+
+            // Try to connect to the serial port
+            // Allow user to retry connection or abort on error
+            do
             {
-                // Use third COM port and create event handler
-                string[] ports = SerialPort.GetPortNames();
-                string COM = ports[2];
-                Debug.WriteLine(COM);
-                port = new SerialPort(COM, 9600, Parity.None, 8, StopBits.One);
-                port.DataReceived += new SerialDataReceivedEventHandler(DataReceivedHandler);
-                port.Open();
-            }
-            catch (Exception)
-            {
-                Debug.WriteLine("COM Port error");
-                return;
-            }
+                try
+                {
+                    // Use first COM port and create event handler
+                    string[] ports = SerialPort.GetPortNames();
+                    string COM = ports[0];
+                    Debug.WriteLine(COM);
+                    port = new SerialPort(COM, 9600, Parity.None, 8, StopBits.One);
+                    port.DataReceived += new SerialDataReceivedEventHandler(DataReceivedHandler);
+                    port.Open();
+                    flag = true;
+                }
+                catch (Exception)
+                {
+                    var choice = MessageBox.Show("Connection to COM Port failed.", "Error", MessageBoxButtons.RetryCancel);
+
+                    if(choice == DialogResult.Cancel)
+                    {
+                        return;
+                    }
+                }
+
+            } while (flag == false);
 
             Console.ReadLine();
         }
@@ -53,10 +67,20 @@ namespace projArduinoToFoobar
             Debug.WriteLine(data);
 
             // Arduino sent PP with carriage return
-            if (data != String.Empty && data.Equals("PP\r"))
+            if (data != String.Empty && data.Equals("PlayPause\r"))
             {
                 string foo = "\"E:\\Data\\Programs\\Installers\\Fresh_Install\\Windows_Settings\\Program Files (x86)\\foobar2000\\foobar2000.exe\"";
                 ExecuteCommand(foo + " /playpause");
+            }
+            else if (data != String.Empty && data.Equals("Next\r"))
+            {
+                string foo = "\"E:\\Data\\Programs\\Installers\\Fresh_Install\\Windows_Settings\\Program Files (x86)\\foobar2000\\foobar2000.exe\"";
+                ExecuteCommand(foo + " /next");
+            }
+            else if (data != String.Empty && data.Equals("Previous\r"))
+            {
+                string foo = "\"E:\\Data\\Programs\\Installers\\Fresh_Install\\Windows_Settings\\Program Files (x86)\\foobar2000\\foobar2000.exe\"";
+                ExecuteCommand(foo + " /prev");
             }
         }
 

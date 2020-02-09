@@ -3,6 +3,11 @@ using System.Windows.Forms;
 using System.Diagnostics;
 using System.IO.Ports;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Management;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace projArduinoToFoobar
 {
@@ -20,12 +25,15 @@ namespace projArduinoToFoobar
         public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         static SerialPort port;
+        static string COM;
 
         static void Main(string[] args)
         {
             HideCurrentWindow();
 
-            ConnectToPort();
+            if (FindArduinoByID(@"USB\VID_1A86&PID_7523\5&E658374&0&14")) { 
+                ConnectToPort();
+            }
 
             Console.ReadLine();
         }
@@ -34,6 +42,52 @@ namespace projArduinoToFoobar
         {
             IntPtr winHandle = Process.GetCurrentProcess().MainWindowHandle;
             ShowWindow(winHandle, 0); // Passing a Zero will hide the window
+        }
+
+        public static bool FindArduinoByID(string arduinoID)
+        {
+            //using System.Management;
+            List<ManagementObject> devices;
+
+            try
+            {
+                string query = "SELECT * FROM Win32_PnPEntity WHERE ConfigManagerErrorCode = 0";// get only devices that are working properly."
+                ManagementObjectSearcher searcher = new ManagementObjectSearcher(query);
+                devices = searcher.Get().Cast<ManagementObject>().ToList();
+                searcher.Dispose();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error from listing devices!");
+                return false;
+            }
+
+            object deviceCaption;
+            string caption;
+
+            foreach (ManagementObject dev in devices)
+            {
+                deviceCaption = dev["Caption"];
+                if (deviceCaption != null)
+                {
+                    caption = deviceCaption.ToString();
+                    if (caption.Contains("(COM"))
+                    {
+                        //Console.WriteLine("Caption: {0}\nDeviceID: {1}\n\n", caption, dev["DeviceID"]);
+
+                        if (dev["DeviceID"].ToString() == arduinoID) // Current Arduino clone to use
+                        {
+                            // "USB-SERIAL CH340 (COM30)"
+                            // should equal COM30 after regex
+                            Regex rx = new Regex(@"(COM\d+)(?!\()");
+                            COM = rx.Match(caption).Value;
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
         }
 
         public static void ConnectToPort()
@@ -48,9 +102,9 @@ namespace projArduinoToFoobar
             {
                 try
                 {
-                    string[] ports = SerialPort.GetPortNames();
-                    string COM = ports[2];
-                    Debug.WriteLine(COM);
+                    //string[] ports = SerialPort.GetPortNames();
+                    //string COM = ports[2];
+                    //Debug.WriteLine(COM);
 
                     port = new SerialPort(COM, 9600, Parity.None, 8, StopBits.One);
                     // Create event handler
@@ -78,56 +132,58 @@ namespace projArduinoToFoobar
             string data = port.ReadLine();
             Debug.WriteLine("Receiving data from port: " + data);
 
-            ManageSerialData(data);
+            ManageSerialData(data.Trim());
         }
 
         private static void ManageSerialData(string data)
         {
             // Location of foobar2000 application
-            string foo = "\"C:\\Program Files (x86)\\foobar2000\\foobar2000.exe\""; //does not accept @"C:\Program Files (x86)\foobar2000\foobar2000.exe"
-
-            /* ---- OLD ----
-            * 
-            * Expected data is in the format 0,0,0 which is three comma separated integers //
-            * string[] splitData = data.Split(',');
-            * serialData = Array.ConvertAll(splitData, int.Parse);
-            */
+            //does not accept @"C:\Program Files (x86)\foobar2000\foobar2000.exe"
+            string foo = "\"C:\\Program Files (x86)\\foobar2000\\foobar2000.exe\"";
 
             switch (data)
             {
                 // Expected data is a command:
                 // ahead, back, up, down, play, prev, next
-                
-                case "ahead":
-                    // /command:"Ahead by 5 seconds"
+
+                //case "ahead":
+                //    Console.WriteLine("Ahead");
+                //     /command:"Ahead by 5 seconds"
+                //    break;
+
+                //case "back":
+                //    Console.WriteLine("Back");
+                //     /command:"Back by 5 seconds"
+                //    break;
+
+                case "UP":
+                    Console.WriteLine("Up");
+                    ExecuteCommand(foo + " /command:Up");
                     break;
 
-                case "back":
-                    // /command:"Back by 5 seconds"
+                case "DOWN":
+                    Console.WriteLine("Down");
+                    ExecuteCommand(foo + " /command:Down");
                     break;
 
-                case "up":
-                    // /command:"Volume up"
-                    break;
-
-                case "down":
-                    // /command:"Volume down"
-                    break;
-
-                case "play":
+                case "PLAYPAUSE":
+                    Console.WriteLine("PlayPause");
                     ExecuteCommand(foo + " /playpause");
                     break;
 
-                case "prev":
+                case "PREVIOUS":
+                    Console.WriteLine("Prev");
                     ExecuteCommand(foo + " /prev");
                     break;
 
-                case "next":
+                case "NEXT":
+                    Console.WriteLine("Next");
                     ExecuteCommand(foo + " /next");
                     break;
 
                 default:
-                    Debug.WriteLine("Unknown command received");
+                    //Console.WriteLine("Unknown command");
+                    Console.WriteLine(data);
                     break;
             }
         }

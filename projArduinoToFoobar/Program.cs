@@ -2,21 +2,20 @@
 using System.Windows.Forms;
 using System.Diagnostics;
 using System.IO.Ports;
-using System.Runtime.InteropServices;
-using System.Threading;
 using System.Management;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
 
-namespace projArduinoToFoobar
+namespace ArduinoToFoobar
 {
 
     /*
-     * This is a hidden program ran in the background which reads serial data 
-     * from an Arduino with the data being 'commands'
-     *
-     * The commands received will allow the control of music playback within foobar2000
+     * This is a hidden console application ran in the background which reads serial data 
+     * from an Arduino clone. The data received will be treated as 'commands' to control music 
+     * playback within a program called foobar2000. This software still works if the
+     * device is unplugged and plugged in again.
      */
 
     class Program
@@ -24,27 +23,59 @@ namespace projArduinoToFoobar
         [DllImport("user32.dll")]
         public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
-        static SerialPort port;
+        static System.Threading.Timer t;
+        static string HARDWARE_ID;
         static string COM;
+        static SerialPort device;
 
-        static void Main(string[] args)
+        static void Main()
         {
-            HideCurrentWindow();
+            HideConsoleWindow();
 
-            if (FindArduinoByID(@"USB\VID_1A86&PID_7523\5&E658374&0&14")) { 
-                ConnectToPort();
-            }
+            HARDWARE_ID = @"USB\VID_1A86&PID_7523\5&E658374&0&14";
+            COM = string.Empty;
+            device = null;
+            t = new System.Threading.Timer(ConnectionWatchdog, null, 0, 5000);
 
-            Console.ReadLine();
+            Console.ReadLine(); // Keep program alive
         }
 
-        public static void HideCurrentWindow()
+        /// <summary>
+        /// Hides the console window using a function built into Windows OS
+        /// </summary>
+        private static void HideConsoleWindow()
         {
             IntPtr winHandle = Process.GetCurrentProcess().MainWindowHandle;
             ShowWindow(winHandle, 0); // Passing a Zero will hide the window
         }
 
-        public static bool FindArduinoByID(string arduinoID)
+        /// <summary>
+        /// Watchdog method called during each timer interval to provide a
+        /// constant connection to the device.
+        /// </summary>
+        /// <param name="state"></param>
+        private static void ConnectionWatchdog(object state)
+        {
+            if (device == null)
+            {
+                // Find correct device and connect to it
+                if (FindDeviceByID())
+                {
+                    ConnectToSerialDevice();
+                }
+            }
+            else if (!device.IsOpen) // if connection to existing device is closed
+            {
+                DeviceCleanup();
+            }
+        }
+
+        /// <summary>
+        /// Enumerates hardware connected to computer.
+        /// Identifies specific device to use based on a hardware ID.
+        /// </summary>
+        /// <returns>bool indicating whether expected device was found</returns>
+        private static bool FindDeviceByID()
         {
             //using System.Management;
             List<ManagementObject> devices;
@@ -56,7 +87,7 @@ namespace projArduinoToFoobar
                 devices = searcher.Get().Cast<ManagementObject>().ToList();
                 searcher.Dispose();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 MessageBox.Show("Error from listing devices!");
                 return false;
@@ -73,9 +104,9 @@ namespace projArduinoToFoobar
                     caption = deviceCaption.ToString();
                     if (caption.Contains("(COM"))
                     {
-                        //Console.WriteLine("Caption: {0}\nDeviceID: {1}\n\n", caption, dev["DeviceID"]);
+                        //Debug.WriteLine("Caption: " + caption + "\nDeviceID: " + dev["DeviceID"] + "\n\n");
 
-                        if (dev["DeviceID"].ToString() == arduinoID) // Current Arduino clone to use
+                        if (dev["DeviceID"].ToString() == HARDWARE_ID)
                         {
                             // "USB-SERIAL CH340 (COM30)"
                             // should equal COM30 after regex
@@ -90,119 +121,141 @@ namespace projArduinoToFoobar
             return false;
         }
 
-        public static void ConnectToPort()
+        /// <summary>
+        /// Attempts to open a serial port connection to enable communication.
+        /// </summary>
+        private static void ConnectToSerialDevice()
         {
-            Debug.WriteLine("Beginning connection to serial port");
-
-            bool connected = false;
-
-            // Try to connect to the serial port
-            // Allow user to retry connection or abort on error
-            do
+            try
             {
-                try
-                {
-                    //string[] ports = SerialPort.GetPortNames();
-                    //string COM = ports[2];
-                    //Debug.WriteLine(COM);
-
-                    port = new SerialPort(COM, 9600, Parity.None, 8, StopBits.One);
-                    // Create event handler
-                    port.DataReceived += new SerialDataReceivedEventHandler(DataReceivedHandler);
-                    port.Open();
-                    connected = true;
-                }
-                catch (Exception)
-                {
-                    var choice = MessageBox.Show("Connection to COM Port failed.", "Error", MessageBoxButtons.RetryCancel);
-
-                    if (choice == DialogResult.Cancel)
-                    {
-                        return;
-                    }
-                }
-
-            } while (connected == false);
+                device = new SerialPort(COM, 9600, Parity.None, 8, StopBits.One);
+                device.DataReceived += new SerialDataReceivedEventHandler(DataReceivedHandler);
+                device.Open();
+                Debug.WriteLine("Successful connection to serial device " + COM);
+            }
+            catch (Exception)
+            {
+                DeviceCleanup();
+                Debug.WriteLine("Failed to connect to serial device " + COM);
+            }
         }
 
+        /// <summary>
+        /// Dispose of any device related resources.
+        /// </summary>
+        private static void DeviceCleanup()
+        {
+            Debug.WriteLine("Cleaning up device resources.");
+
+            if (device != null)
+            {
+                device.DataReceived -= new SerialDataReceivedEventHandler(DataReceivedHandler);
+                if (device.IsOpen) device.Close();
+                device.Dispose();
+                device = null;
+            }
+        }
+
+        /// <summary>
+        /// Event that is fired when serial data is received from the device.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private static void DataReceivedHandler(object sender, SerialDataReceivedEventArgs e)
         {
-            SerialPort port = (SerialPort)sender;
-
-            string data = port.ReadLine();
-            Debug.WriteLine("Receiving data from port: " + data);
-
-            ManageSerialData(data.Trim());
+            try
+            {
+                var data = (sender as SerialPort).ReadLine().Trim();
+                //var data = device.ReadLine().Trim();
+                ParseDeviceData(data);
+            }
+            catch(Exception)
+            {
+                Debug.WriteLine("Error when receiving serial data.");
+                DeviceCleanup();
+            }
         }
 
-        private static void ManageSerialData(string data)
+        /// <summary>
+        /// Parse the serial data into usable commands for the music application.
+        /// </summary>
+        /// <param name="data"></param>
+        private static void ParseDeviceData(string data)
         {
-            // Location of foobar2000 application
-            //does not accept @"C:\Program Files (x86)\foobar2000\foobar2000.exe"
-            string foo = "\"C:\\Program Files (x86)\\foobar2000\\foobar2000.exe\"";
+            // Location of foobar2000 music application
+            // does not accept @"C:\Program Files (x86)\foobar2000\foobar2000.exe"
+            string program = "\"C:\\Program Files (x86)\\foobar2000\\foobar2000.exe\"";
 
             switch (data)
             {
-                // Expected data is a command:
-                // ahead, back, up, down, play, prev, next
+                // Expected data {AHEAD, BACK, UP, DOWN, PLAYPAUSE, PREVIOUS, NEXT}
 
-                //case "ahead":
-                //    Console.WriteLine("Ahead");
-                //     /command:"Ahead by 5 seconds"
-                //    break;
+                case "AHEAD":
+                    Debug.WriteLine("Ahead");
+                    ExecuteCommand(program + " /command:Ahead by 5 seconds");
+                    break;
 
-                //case "back":
-                //    Console.WriteLine("Back");
-                //     /command:"Back by 5 seconds"
-                //    break;
+                case "BACK":
+                    Debug.WriteLine("Back");
+                    ExecuteCommand(program + " /command:Back by 5 seconds");
+                    break;
 
                 case "UP":
-                    Console.WriteLine("Up");
-                    ExecuteCommand(foo + " /command:Up");
+                    Debug.WriteLine("Up");
+                    ExecuteCommand(program + " /command:Up");
                     break;
 
                 case "DOWN":
-                    Console.WriteLine("Down");
-                    ExecuteCommand(foo + " /command:Down");
+                    Debug.WriteLine("Down");
+                    ExecuteCommand(program + " /command:Down");
                     break;
 
                 case "PLAYPAUSE":
-                    Console.WriteLine("PlayPause");
-                    ExecuteCommand(foo + " /playpause");
+                    Debug.WriteLine("Play/Pause");
+                    ExecuteCommand(program + " /playpause");
                     break;
 
                 case "PREVIOUS":
-                    Console.WriteLine("Prev");
-                    ExecuteCommand(foo + " /prev");
+                    Debug.WriteLine("Previous");
+                    ExecuteCommand(program + " /prev");
                     break;
 
                 case "NEXT":
-                    Console.WriteLine("Next");
-                    ExecuteCommand(foo + " /next");
+                    Debug.WriteLine("Next");
+                    ExecuteCommand(program + " /next");
                     break;
 
                 default:
-                    //Console.WriteLine("Unknown command");
-                    Console.WriteLine(data);
+                    Debug.WriteLine("Unknown command received: " + data);
                     break;
             }
         }
 
+        /// <summary>
+        /// Runs a console command through CMD without displaying a GUI.
+        /// </summary>
+        /// <param name="command"></param>
         public static void ExecuteCommand(string command)
         {
-            // Runs a command through CMD with no GUI
-            ProcessStartInfo procStartInfo = new ProcessStartInfo("cmd", "/c " + command)
+            try
             {
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                ProcessStartInfo processStartInfo = new ProcessStartInfo("cmd", "/c " + command)
+                {
+                    UseShellExecute = false,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                };
 
-            using (Process proc = new Process())
+                using (Process process = new Process())
+                {
+                    process.StartInfo = processStartInfo;
+                    process.Start();
+                }
+            }
+            catch (Exception)
             {
-                proc.StartInfo = procStartInfo;
-                proc.Start();
+                Debug.WriteLine("Failed to send command.");
             }
         }
     }

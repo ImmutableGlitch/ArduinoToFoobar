@@ -1,0 +1,5 @@
+E:\Hobbies\Programming\DotNET\Projects\solArduinoToFoobar\projArduinoToFoobar\bin\Release\ArduinoToFoobar.exe.config
+E:\Hobbies\Programming\DotNET\Projects\solArduinoToFoobar\projArduinoToFoobar\bin\Release\ArduinoToFoobar.exe
+E:\Hobbies\Programming\DotNET\Projects\solArduinoToFoobar\projArduinoToFoobar\bin\Release\ArduinoToFoobar.pdb
+E:\Hobbies\Programming\DotNET\Projects\solArduinoToFoobar\projArduinoToFoobar\obj\Release\ArduinoToFoobar.exe
+E:\Hobbies\Programming\DotNET\Projects\solArduinoToFoobar\projArduinoToFoobar\obj\Release\ArduinoToFoobar.pdb

@@ -35,7 +35,7 @@ namespace ArduinoToFoobar
             HARDWARE_ID = @"USB\VID_1A86&PID_7523\5&E658374&0&14";
             COM = string.Empty;
             device = null;
-            t = new System.Threading.Timer(ConnectionWatchdog, null, 0, 5000);
+            t = new System.Threading.Timer(ConnectionWatchdog, null, 0, 60000);
 
             Console.ReadLine(); // Keep program alive
         }

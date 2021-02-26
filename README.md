@@ -1,11 +1,11 @@
 # ArduinoToFoobar
-This is a hidden program ran in the background which reads serial data from an Arduino.  
-When a button is pressed on the Arduino it sends a serial command which is read by this program.  
-The command will allow the control of music playback within foobar2000.
+This is a hideable console application used to read serial data from an Arduino clone.
+The data received will be treated as 'commands' to control music playback within a 
+program called foobar2000. Every 10 seconds this application checks if the device 
+is connected which is useful if it has been unplugged and plugged in again, as 
+the connection will be reestablished.
 
 ### Read before running...
-This program will select the first com port, which will be the COM port with the highest number from what I have tested.
-Find the arduino within device manager and change its port number to something high such as 30.
-![](IMAGES/dev.png)
-
-Foobar2000 location will also need appended within the source code.
+The foobar2000 file path within the source code may need edited along with the ClassGUID 
+and Device Name for your Arduino. The application can also be hidden within the source code.
+The ParseDeviceData method needs customised for your specific usage.

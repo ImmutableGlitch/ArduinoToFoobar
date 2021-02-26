@@ -1,10 +1,7 @@
 ﻿using System;
-using System.Windows.Forms;
 using System.Diagnostics;
 using System.IO.Ports;
 using System.Management;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
 
@@ -12,10 +9,11 @@ namespace ArduinoToFoobar
 {
 
     /*
-     * This is a hidden console application ran in the background which reads serial data 
-     * from an Arduino clone. The data received will be treated as 'commands' to control music 
-     * playback within a program called foobar2000. This software still works if the
-     * device is unplugged and plugged in again.
+     * This is a hideable console application used to read serial data from an Arduino clone.
+     * The data received will be treated as 'commands' to control music playback within a 
+     * program called foobar2000. Every 10 seconds this application checks if the device 
+     * is connected which is useful if it has been unplugged and plugged in again, as 
+     * the connection will be reestablished.
      */
 
     class Program
@@ -24,20 +22,30 @@ namespace ArduinoToFoobar
         public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         static System.Threading.Timer t;
-        static string HARDWARE_ID;
+        static string ExpectedClassGuid;
+        static string ExpectedDisplayName;
         static string COM;
         static SerialPort device;
+        
 
         static void Main()
         {
-            HideConsoleWindow();
+            //HideConsoleWindow();
 
-            HARDWARE_ID = @"USB\VID_1A86&PID_7523\5&E658374&0&14";
             COM = string.Empty;
             device = null;
-            t = new System.Threading.Timer(ConnectionWatchdog, null, 0, 60000);
 
-            Console.ReadLine(); // Keep program alive
+            // Determined using Device Manager to check device properties
+            ExpectedClassGuid   = "{4d36e978-e325-11ce-bfc1-08002be10318}";
+            ExpectedDisplayName = "USB-SERIAL CH340 (COM";
+
+            // Check the connection state every 10 seconds
+            t = new System.Threading.Timer(ConnectionWatchdog, null, 0, 10000);
+
+            // Keep program alive
+            Console.ReadLine();
+
+            //TODO: intercept the closing of console window with ConsoleCancelEventHandler etc
         }
 
         /// <summary>
@@ -59,62 +67,36 @@ namespace ArduinoToFoobar
             if (device == null)
             {
                 // Find correct device and connect to it
-                if (FindDeviceByID())
+                if (FindSerialDeviceByName())
                 {
                     ConnectToSerialDevice();
                 }
             }
-            else if (!device.IsOpen) // if connection to existing device is closed
+            else if (!device.IsOpen) // if lost connection to device
             {
                 DeviceCleanup();
             }
         }
 
         /// <summary>
-        /// Enumerates hardware connected to computer.
-        /// Identifies specific device to use based on a hardware ID.
+        /// Enumerates plug and play hardware connected to computer.
+        /// Identifies specific device to use based on an expected ClassGUID and Device Name.
         /// </summary>
         /// <returns>bool indicating whether expected device was found</returns>
-        private static bool FindDeviceByID()
+        private static bool FindSerialDeviceByName()
         {
-            //using System.Management;
-            List<ManagementObject> devices;
+            ManagementObjectSearcher search = new ManagementObjectSearcher("root\\CIMV2",
+                "SELECT * FROM Win32_PnPEntity WHERE ClassGuid = \"" + ExpectedClassGuid + "\"");
 
-            try
+            foreach (ManagementObject objectFound in search.Get())
             {
-                string query = "SELECT * FROM Win32_PnPEntity WHERE ConfigManagerErrorCode = 0";// get only devices that are working properly."
-                ManagementObjectSearcher searcher = new ManagementObjectSearcher(query);
-                devices = searcher.Get().Cast<ManagementObject>().ToList();
-                searcher.Dispose();
-            }
-            catch (Exception)
-            {
-                MessageBox.Show("Error from listing devices!");
-                return false;
-            }
+                string displayName = objectFound["Caption"].ToString();
 
-            object deviceCaption;
-            string caption;
-
-            foreach (ManagementObject dev in devices)
-            {
-                deviceCaption = dev["Caption"];
-                if (deviceCaption != null)
+                if (displayName.Contains(ExpectedDisplayName))
                 {
-                    caption = deviceCaption.ToString();
-                    if (caption.Contains("(COM"))
-                    {
-                        //Debug.WriteLine("Caption: " + caption + "\nDeviceID: " + dev["DeviceID"] + "\n\n");
-
-                        if (dev["DeviceID"].ToString() == HARDWARE_ID)
-                        {
-                            // "USB-SERIAL CH340 (COM30)"
-                            // should equal COM30 after regex
-                            Regex rx = new Regex(@"(COM\d+)(?!\()");
-                            COM = rx.Match(caption).Value;
-                            return true;
-                        }
-                    }
+                    Regex rx = new Regex(@"(COM\d+)(?!\()");
+                    COM = rx.Match(displayName).Value;
+                    return true;
                 }
             }
 
@@ -122,7 +104,7 @@ namespace ArduinoToFoobar
         }
 
         /// <summary>
-        /// Attempts to open a serial port connection to enable communication.
+        /// Attempts to open a serial port connection to enable communication with the device.
         /// </summary>
         private static void ConnectToSerialDevice()
         {
@@ -131,12 +113,12 @@ namespace ArduinoToFoobar
                 device = new SerialPort(COM, 9600, Parity.None, 8, StopBits.One);
                 device.DataReceived += new SerialDataReceivedEventHandler(DataReceivedHandler);
                 device.Open();
-                Debug.WriteLine("Successful connection to serial device " + COM);
+                Console.WriteLine("Successful connection to serial device " + COM);
             }
             catch (Exception)
             {
                 DeviceCleanup();
-                Debug.WriteLine("Failed to connect to serial device " + COM);
+                Console.WriteLine("Failed to connect to serial device " + COM);
             }
         }
 
@@ -145,7 +127,7 @@ namespace ArduinoToFoobar
         /// </summary>
         private static void DeviceCleanup()
         {
-            Debug.WriteLine("Cleaning up device resources.");
+            Console.WriteLine("Lost connection to device.");
 
             if (device != null)
             {
@@ -166,12 +148,11 @@ namespace ArduinoToFoobar
             try
             {
                 var data = (sender as SerialPort).ReadLine().Trim();
-                //var data = device.ReadLine().Trim();
                 ParseDeviceData(data);
             }
             catch(Exception)
             {
-                Debug.WriteLine("Error when receiving serial data.");
+                Console.WriteLine("Error when receiving serial data.");
                 DeviceCleanup();
             }
         }
@@ -183,50 +164,63 @@ namespace ArduinoToFoobar
         private static void ParseDeviceData(string data)
         {
             // Location of foobar2000 music application
-            // does not accept @"C:\Program Files (x86)\foobar2000\foobar2000.exe"
-            string program = "\"C:\\Program Files (x86)\\foobar2000\\foobar2000.exe\"";
+            string program = "\"C:\\Program Files (x86)\\foobar2000\\foobar2000.exe\" ";
 
-            switch (data)
+            //Spaces in Program Path +parameters:
+            //CMD /C ""c:\Program Files\demo.cmd"" Parameter1 Param2
+
+            //Spaces in Program Path +parameters with spaces:
+            //CMD /K ""c:\batch files\demo.cmd" "Parameter 1 with space" "Parameter2 with space""
+
+            switch (data) // Expected data {UP, DOWN, LEFT, RIGHT, A, B, C, RESET, START}
             {
-                // Expected data {AHEAD, BACK, UP, DOWN, PLAYPAUSE, PREVIOUS, NEXT}
-
-                case "AHEAD":
-                    Debug.WriteLine("Ahead");
-                    ExecuteCommand(program + " /command:Ahead by 5 seconds");
-                    break;
-
-                case "BACK":
-                    Debug.WriteLine("Back");
-                    ExecuteCommand(program + " /command:Back by 5 seconds");
-                    break;
-
                 case "UP":
-                    Debug.WriteLine("Up");
-                    ExecuteCommand(program + " /command:Up");
+                    Console.WriteLine("Volume Up");
+                    ExecuteCommand(program + "\"/command:Up\"");
                     break;
 
                 case "DOWN":
-                    Debug.WriteLine("Down");
-                    ExecuteCommand(program + " /command:Down");
+                    Console.WriteLine("Volume Down");
+                    ExecuteCommand(program + "\"/command:Down\"");
                     break;
 
-                case "PLAYPAUSE":
-                    Debug.WriteLine("Play/Pause");
-                    ExecuteCommand(program + " /playpause");
+                case "LEFT":
+                    Console.WriteLine("Seek Backwards");
+                    ExecuteCommand(program + "\"/command:Back by 30 seconds\"");
                     break;
 
-                case "PREVIOUS":
-                    Debug.WriteLine("Previous");
-                    ExecuteCommand(program + " /prev");
+                case "RIGHT":
+                    Console.WriteLine("Seek Forwards");
+                    ExecuteCommand(program + "\"/command:Ahead by 30 seconds\"");
                     break;
 
-                case "NEXT":
-                    Debug.WriteLine("Next");
-                    ExecuteCommand(program + " /next");
+                case "A":
+                    Console.WriteLine("Previous song");
+                    ExecuteCommand(program + "\"/prev\"");
+                    break;
+
+                case "B":
+                    Console.WriteLine("Play/Pause");
+                    ExecuteCommand(program + "\"/playpause\"");
+                    break;
+
+                case "C":
+                    Console.WriteLine("Next song");
+                    ExecuteCommand(program + "\"/next\"");
+                    break;
+
+                case "RESET":
+                    Console.WriteLine("Delete current song");
+                    //ExecuteCommand(program + "\"/playing_command:<context menu command>\""); // invokes the specified context menu command on currently played track
+                    break;
+
+                case "START":
+                    Console.WriteLine("Open/Show foobar2000");
+                    ExecuteCommand(program);
                     break;
 
                 default:
-                    Debug.WriteLine("Unknown command received: " + data);
+                    Console.WriteLine("Unknown command received: " + data);
                     break;
             }
         }
@@ -239,7 +233,7 @@ namespace ArduinoToFoobar
         {
             try
             {
-                ProcessStartInfo processStartInfo = new ProcessStartInfo("cmd", "/c " + command)
+                ProcessStartInfo processStartInfo = new ProcessStartInfo("cmd", "/C " + "\"" + command + "\"")
                 {
                     UseShellExecute = false,
                     RedirectStandardError = true,
@@ -255,7 +249,7 @@ namespace ArduinoToFoobar
             }
             catch (Exception)
             {
-                Debug.WriteLine("Failed to send command.");
+                Console.WriteLine("Failed to send command.");
             }
         }
     }

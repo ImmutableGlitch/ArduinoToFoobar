@@ -1,6 +1,0 @@
-E:\Hobbies\Programming\DotNET\Projects\solArduinoToFoobar\ArduinoToFoobar\bin\Release\ArduinoToFoobar.exe.config
-E:\Hobbies\Programming\DotNET\Projects\solArduinoToFoobar\ArduinoToFoobar\bin\Release\ArduinoToFoobar.exe
-E:\Hobbies\Programming\DotNET\Projects\solArduinoToFoobar\ArduinoToFoobar\bin\Release\ArduinoToFoobar.pdb
-E:\Hobbies\Programming\DotNET\Projects\solArduinoToFoobar\ArduinoToFoobar\obj\Release\ArduinoToFoobar.csprojAssemblyReference.cache
-E:\Hobbies\Programming\DotNET\Projects\solArduinoToFoobar\ArduinoToFoobar\obj\Release\ArduinoToFoobar.exe
-E:\Hobbies\Programming\DotNET\Projects\solArduinoToFoobar\ArduinoToFoobar\obj\Release\ArduinoToFoobar.pdb

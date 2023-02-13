@@ -24,30 +24,54 @@ namespace ArduinoToFoobar
      * 4. Replace 'ExpectedClassGuid' string with this value
      */
 
+    /*
+     * TODO: 
+     * -read config from JSON or XML file on startup
+     *      hardware settings {portName, baudRate, parity, dataBits, stopBits}
+     *      misc {connectionInterval, logPath}
+     *      profiles {profileName, targetExecutable, }
+     */
+
     class Program
     {
-        const string ExpectedClassGuid = "{4d36e978-e325-11ce-bfc1-08002be10318}";
-        const string ExpectedDisplayName = "USB-SERIAL CH340 (COM";
-        const string foobarExecutable = "\"C:\\Program Files (x86)\\foobar2000\\foobar2000.exe\" ";
+        enum MapperProfile
+        {
+            foobar,
+            video
+        }
+
+        static MapperProfile profile;
+
+        static SerialPort device = null;
+        static string portName = "";
+
+        static string expectedClassGuid   = ""; //{4d36e978-e325-11ce-bfc1-08002be10318}
+        static string expectedDisplayName = ""; //USB-SERIAL CH340 (COM5)
+        static string targetExecutable    = ""; //C:\Program Files (x86)\foobar2000\foobar2000.exe
+
+        static int connectionInterval = 30000;
+
+
+        static Process process;
+        static ProcessStartInfo processStartInfo;
 
         [DllImport("user32.dll")]
         public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
-        static SerialPort device = null;
-        static string COM = string.Empty;
-
-        static ProcessStartInfo processStartInfo;
-        static Process process;
-
         static void Main()
         {
+            //////////[Temporary test]
+            profile = MapperProfile.foobar;
+            targetExecutable = @"""C:\Program Files (x86)\foobar2000\foobar2000.exe""";
+            portName = "COM13";
+            //////////
+            
             IntPtr winHandle = Process.GetCurrentProcess().MainWindowHandle;
             ShowWindow(winHandle, 0); // Passing a Zero to hide this console window
 
-            var timer = new Timer(ConnectionWatchdog, null, 0, 30000);
+            var timer = new Timer(ConnectionWatchdog, null, 0, connectionInterval); // Check connection every x seconds
 
-            // Keep program alive
-            Console.ReadLine();
+            Console.ReadLine(); // Keep program alive
         }
 
         /// <summary>
@@ -59,15 +83,14 @@ namespace ArduinoToFoobar
         {
             if (device == null)
             {
-                // Find correct device and connect to it
-                if (FindSerialDeviceByName())
-                {
-                    ConnectToSerialDevice();
-                }
+                //if (FindSerialDeviceByName()) // Find correct device
+                //{
+                    ConnectToSerialDevice(); // Connect to it
+                //}
             }
             else if (!device.IsOpen) // if lost connection to device
             {
-                DeviceCleanup();
+                DeviceCleanup(); // Close and dispose serial port
             }
         }
 
@@ -79,16 +102,16 @@ namespace ArduinoToFoobar
         private static bool FindSerialDeviceByName()
         {
             ManagementObjectSearcher search = new ManagementObjectSearcher("root\\CIMV2",
-                "SELECT * FROM Win32_PnPEntity WHERE ClassGuid = \"" + ExpectedClassGuid + "\"");
+                "SELECT * FROM Win32_PnPEntity WHERE ClassGuid = \"" + expectedClassGuid + "\"");
 
             foreach (ManagementObject objectFound in search.Get())
             {
                 string displayName = objectFound["Caption"].ToString();
 
-                if (displayName.Contains(ExpectedDisplayName))
+                if (displayName.Contains(expectedDisplayName))
                 {
-                    Regex rx = new Regex(@"(COM\d+)(?!\()");
-                    COM = rx.Match(displayName).Value;
+                    Regex rx = new Regex(@"(COM\d+)(?!\()"); //TODO: check if working for double digit number such as COM13
+                    portName = rx.Match(displayName).Value;
                     return true;
                 }
             }
@@ -103,17 +126,34 @@ namespace ArduinoToFoobar
         {
             try
             {
-                device = new SerialPort(COM, 9600, Parity.None, 8, StopBits.One);
+                device = new SerialPort(portName, 9600, Parity.None, 8, StopBits.One);
                 device.DataReceived += new SerialDataReceivedEventHandler(DataReceivedHandler);
                 device.Open();
-                Debug.WriteLine("Successful connection to serial device " + COM);
+                Debug.WriteLine("Successful connection to serial device " + portName);
             }
             catch (Exception)
             {
                 DeviceCleanup();
-                Debug.WriteLine("Failed to connect to serial device " + COM);
+                Debug.WriteLine("Failed to connect to serial device " + portName);
             }
         }
+
+        /// <summary>
+        /// Dispose of any device related resources.
+        /// </summary>
+        private static void DeviceCleanup()
+        {
+            if (device != null)
+            {
+                Debug.WriteLine("Closing connection to device.");
+
+                device.DataReceived -= new SerialDataReceivedEventHandler(DataReceivedHandler);
+                if (device.IsOpen) device.Close();
+                device.Dispose();
+                device = null;
+            }
+        }
+
         /// <summary>
         /// Event that is fired when serial data is received from the device.
         /// </summary>
@@ -139,82 +179,92 @@ namespace ArduinoToFoobar
         /// <param name="data"></param>
         private static void ParseDeviceData(string dataList)
         {
-            //Spaces in Program Path +parameters:
-            //CMD /C ""c:\Program Files\demo.cmd"" Parameter1 Param2
-
-            //Spaces in Program Path +parameters with spaces:
-            //CMD /K ""c:\batch files\demo.cmd" "Parameter 1 with space" "Parameter2 with space""
 
             // For each command found in the dataList
             foreach (string cmd in dataList.Split(new string[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries))
             {
-                switch (cmd) // Expected data {UP, DOWN, LEFT, RIGHT, A, B, C, RESET, START}
+                if(profile == MapperProfile.foobar)
                 {
-                    case "UP":
-                        Debug.WriteLine("Volume Up");
-                        ExecuteCommand(foobarExecutable + "\"/command:Up\"");
-                        break;
+                    switch (cmd) // Expected data {UP, DOWN, LEFT, RIGHT, A, B, C, RESET, START}
+                    {
+                        case "UP":
+                            Debug.WriteLine("Volume Up");
+                            ExecuteCommand("\"/command:Up\"");
+                            break;
 
-                    case "DOWN":
-                        Debug.WriteLine("Volume Down");
-                        ExecuteCommand(foobarExecutable + "\"/command:Down\"");
-                        break;
+                        case "DOWN":
+                            Debug.WriteLine("Volume Down");
+                            ExecuteCommand("\"/command:Down\"");
+                            break;
 
-                    case "LEFT":
-                        Debug.WriteLine("Seek Backwards");
-                        ExecuteCommand(foobarExecutable + "\"/command:Back by 30 seconds\"");
-                        break;
+                        case "LEFT":
+                            Debug.WriteLine("Seek Backwards");
+                            ExecuteCommand("\"/command:Back by 30 seconds\"");
+                            break;
 
-                    case "RIGHT":
-                        Debug.WriteLine("Seek Forwards");
-                        ExecuteCommand(foobarExecutable + "\"/command:Ahead by 30 seconds\"");
-                        break;
+                        case "RIGHT":
+                            Debug.WriteLine("Seek Forwards");
+                            ExecuteCommand("\"/command:Ahead by 30 seconds\"");
+                            break;
 
-                    case "A":
-                        Debug.WriteLine("Previous song");
-                        ExecuteCommand(foobarExecutable + "\"/prev\"");
-                        break;
+                        case "A":
+                            Debug.WriteLine("Previous song");
+                            ExecuteCommand("\"/prev\"");
+                            break;
 
-                    case "B":
-                        Debug.WriteLine("Play/Pause");
-                        ExecuteCommand(foobarExecutable + "\"/playpause\"");
-                        break;
+                        case "B":
+                            Debug.WriteLine("Play/Pause");
+                            ExecuteCommand("\"/playpause\"");
+                            break;
 
-                    case "C":
-                        Debug.WriteLine("Next song");
-                        ExecuteCommand(foobarExecutable + "\"/next\"");
-                        break;
+                        case "C":
+                            Debug.WriteLine("Next song");
+                            ExecuteCommand("\"/next\"");
+                            break;
 
-                    case "RESET":
-                        Debug.WriteLine("Delete current song");
-                        ExecuteCommand(foobarExecutable + "\"/playing_command:Delete file\""); // invokes the specified context menu command on currently played track
-                        break;
+                        case "RESET":
+                            Debug.WriteLine("Delete current song");
+                            ExecuteCommand("\"/playing_command:Delete file\""); // invokes the specified context menu command on currently played track
+                            break;
 
-                    case "START":
-                        Debug.WriteLine("Open/Show foobar2000");
-                        ExecuteCommand(foobarExecutable);
-                        break;
+                        case "START":
+                            Debug.WriteLine("Open/Show foobar2000");
+                            ExecuteCommand("");
+                            break;
 
-                    default:
-                        Debug.WriteLine("Unknown command received: " + cmd);
-                        break;
+                        default:
+                            Debug.WriteLine("Unknown command received: " + cmd);
+                            break;
+
+                    }
                 }
-            }
-        }
+                else if (profile == MapperProfile.video)
+                {
+                    Debug.WriteLine(cmd);
 
-        /// <summary>
-        /// Dispose of any device related resources.
-        /// </summary>
-        private static void DeviceCleanup()
-        {
-            Debug.WriteLine("Lost connection to device.");
+                    switch (cmd)
+                    {
+                        case "scrollUp":
+                            ExecuteCommand("nircmdc sendmouse wheel 120");
+                            break;
 
-            if (device != null)
-            {
-                device.DataReceived -= new SerialDataReceivedEventHandler(DataReceivedHandler);
-                if (device.IsOpen) device.Close();
-                device.Dispose();
-                device = null;
+                        case "scrollDown":
+                            ExecuteCommand("nircmdc sendmouse wheel -120");
+                            break;
+
+                        case "flickRight":
+                            ExecuteCommand("nircmdc sendkey right press");
+                            break;
+
+                        case "flickLeft":
+                            ExecuteCommand("nircmdc sendkey left press");
+                            break;
+
+                        default:
+                            Debug.WriteLine("Unknown command received: " + cmd);
+                            break;
+                    }
+                }
             }
         }
 
@@ -226,7 +276,7 @@ namespace ArduinoToFoobar
         {
             try
             {
-                processStartInfo = new ProcessStartInfo("cmd", "/C " + "\"" + command + "\"")
+                processStartInfo = new ProcessStartInfo("cmd", $" /C \"{targetExecutable} {command}\" ") // cmd /C "exePath args"
                 {
                     UseShellExecute = false,
                     RedirectStandardError = true,
